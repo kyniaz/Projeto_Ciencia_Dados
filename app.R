@@ -50,6 +50,8 @@ server <- function(input, output) {
                     sep=",", dec=".", quote="\"", encoding = "UTF-8")
     }
     
+    remove_modal_gif()
+    
     dataset$dados = dataset$dados |> select(dataNotificacao, ocupacaoSuspeitoCli, ocupacaoSuspeitoUti,
                             ocupacaoConfirmadoCli, ocupacaoConfirmadoUti,
                             ocupacaoCovidUti, ocupacaoCovidCli,
@@ -109,11 +111,13 @@ server <- function(input, output) {
       
       eixo_y = variavel
       
-      for(i in 1:length(maiusculas_eixo_y[[1]])){
-        eixo_y = sub(maiusculas_eixo_y[[1]][i], paste(' ',maiusculas_eixo_y[[1]][i]), eixo_y)
+      unicos_maiusculas = unique(maiusculas_eixo_y[[1]])
+      
+      for(i in 1:length(unicos_maiusculas)){
+        eixo_y = gsub(unicos_maiusculas[i], paste(' ',unicos_maiusculas[i]), eixo_y)
       }
       
-      eixo_y = gsub(strsplit(eixo_y,'')[[1]][1], toupper(strsplit(eixo_y,'')[[1]][1]), eixo_y)
+      eixo_y = sub(strsplit(eixo_y,'')[[1]][1], toupper(strsplit(eixo_y,'')[[1]][1]), eixo_y)
       
       eval(parse(text = paste0('total_algo_safra = ggplot(Y) +
         geom_line(size = 1, aes(x = ',var_data,', y = Total, group = 1), col = "springgreen3") +
@@ -122,7 +126,6 @@ server <- function(input, output) {
         xlab("Tempo") +
         ylab(eixo_y)
       ')))
-      remove_modal_gif()
       
       output$teste = renderPlot(total_algo_safra)
     }
