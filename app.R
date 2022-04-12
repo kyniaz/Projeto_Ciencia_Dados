@@ -7,33 +7,63 @@ library(bs4Dash)
 library(shinybusy)
 library(forecast)
 library(zoo)
+library(plotly)
+library(tmap)
+#remotes::install_github("rpradosiqueira/brazilmaps")
+library(brazilmaps)
+#devtools::install_github("ipeaGIT/geobr", subdir = "r-package")
+library(geobr)
+
 options(scipen = 9999)
 
-#SAIDASUSPEITALTAS
-#SAIDASUSPEITAOBITOS
-#OCUPACAOCOVIDCLI
-#OCUPACAOCOVIDUTI
-
-
-#Define UI for application that draws a histogram
+#UI
 ui <- dashboardPage(
   dashboardHeader(title = "Histórico Hospitalizações"),
   dashboardSidebar(
             selectizeInput("ano",
                         "Selecione o ano:",
                         choices = c("2022","2021","2020"),
-            )
-        ),
+            ),
+            selectizeInput("data_tipo",
+                           "Selecione a formatação da Data:",
+                           choices = c("Por Mês",
+                                       "Por Semana", 'Por Dia')),
+            selectizeInput("info",
+                           "Selecione a informação:",
+                           choices = c("ocupacaoSuspeitoCli",
+                                       "ocupacaoSuspeitoUti",
+                                       "ocupacaoConfirmadoCli",
+                                       "ocupacaoConfirmadoUti",
+                                       "ocupacaoCovidUti",
+                                       "ocupacaoCovidCli",
+                                       "ocupacaoHospitalarUti",
+                                       "ocupacaoHospitalarCli",
+                                       "saidaSuspeitaObitos",
+                                       "saidaSuspeitaAltas",
+                                       "saidaConfirmadaObitos",
+                                       "saidaConfirmadaAltas")),
+            sliderInput("previsao_prazo",
+                        "Selecione a previsão(apropriado para 2022 nas visões de Dia e Semana):",
+                          min = 1, max = 30, value = 1)
+        ,skin = 'light'),
         dashboardBody(
-            uiOutput("escolhe_info"), #box(width = 12,plotOutput("teste"), 
-            box(width = 12,plotOutput("serie_temporal"))
+          tabsetPanel(
+            id = "tabcard",
+            tabPanel(
+              title = "Informação Temporal", 
+              plotlyOutput("serie_temporal")),
+            tabPanel(
+              title = "Informação Espacial",
+              tmapOutput("mapa")
+            )
+          )
         )
   )
 
 dataset = reactiveValues()
 
 
-# Define server logic required to draw a histogram
+#Servidor
 server <- function(input, output) {
 
   observeEvent(input$ano, {
@@ -72,34 +102,6 @@ server <- function(input, output) {
     dataset$dados$Semana = as.factor(week(dataset$dados$dataNotificacao))
     dataset$dados$Dia = as.factor(yday(dataset$dados$dataNotificacao))
     
-    output$escolhe_info = renderUI(
-      tagList(
-        box(width = 12,
-            column(6, selectizeInput("data_tipo",
-                       "Selecione a formatação da Data:",
-                       choices = c("Por Mês",
-                                   "Por Semana", 'Por Dia'))),
-            column(6, selectizeInput("info",
-                       "Selecione a informação:",
-                       choices = c("ocupacaoSuspeitoCli",
-                                   "ocupacaoSuspeitoUti",
-                                   "ocupacaoConfirmadoCli",
-                                   "ocupacaoConfirmadoUti",
-                                   "ocupacaoCovidUti",
-                                   "ocupacaoCovidCli",
-                                   "ocupacaoHospitalarUti",
-                                   "ocupacaoHospitalarCli",
-                                   "saidaSuspeitaObitos",
-                                   "saidaSuspeitaAltas",
-                                   "saidaConfirmadaObitos",
-                                   "saidaConfirmadaAltas"))),
-            column(6, sliderInput("previsao_prazo",
-                                  "Selecione a previsão(para 2022 nas visões de Dia e Semana):",
-                                  min = 1, max = 60, value = 1))
-            )
-        
-      )
-    )
   })
   
   eventos = reactive({
@@ -115,11 +117,12 @@ server <- function(input, output) {
 
       variavel = input$info
       
-      eval(parse(text = paste0('Y = dataset$dados %>% dplyr::select(',var_data,',',variavel,') %>% 
+      ###Formatação por data (dia, mes ou semana) ----
+      eval(parse(text = paste0('Y = dataset$dados %>% dplyr::select(,',var_data,',',variavel,') %>% 
         dplyr::group_by(',var_data,') %>% 
         dplyr::summarise(Total = sum(',variavel,', na.rm = T)) %>% 
         as.data.frame()')))
-       
+  
       maiusculas_eixo_y = regmatches(variavel, gregexpr("[A-Z]", variavel))
       
       eixo_y = variavel
@@ -133,21 +136,6 @@ server <- function(input, output) {
       eixo_y = sub(strsplit(eixo_y,'')[[1]][1], toupper(strsplit(eixo_y,'')[[1]][1]), eixo_y)
       
       # if(input$data_tipo == "Por Dia")
-      # eval(parse(text = paste0('total_algo_safra = ggplot(Y) +
-      #   geom_line(size = 1, aes(x = ',var_data,', y = Total, group = 1), col = "springgreen3") +
-      #   theme_minimal() +
-      #   theme(axis.text.x = element_blank()) + 
-      #   xlab("Tempo") +
-      #   ylab(eixo_y)
-      # ')))
-      # else 
-      #   eval(parse(text = paste0('total_algo_safra = ggplot(Y) +
-      #   geom_line(size = 1, aes(x = ',var_data,', y = Total, group = 1), col = "springgreen3") +
-      #   theme_minimal() +
-      #   theme(axis.text.x = element_text(angle=90,hjust=1)) + 
-      #   xlab("Tempo") +
-      #   ylab(eixo_y)
-      # ')))
       
       dia_mais_recente = as.Date(max(dataset$dados$dataNotificacao),'%Y-%m-%d')
       
@@ -186,11 +174,11 @@ server <- function(input, output) {
         
         serie_temporal <- 
           ggplot() +
-          geom_line(aes(x = datas, y = Y$Total, colour = "a")) +
-          geom_line(aes(x = datas, y = fit$fitted, colour = "b")) + 
-          geom_line(aes(x = as.Date(as.numeric(datas_predicao)), y = predicao$mean, colour = "c")) +
+          geom_line(aes(x = datas, y = Y$Total, colour = "Dados observados")) +
+          geom_line(aes(x = datas, y = fit$fitted, colour = "Modelo SARIMA")) + 
+          geom_line(aes(x = as.Date(as.numeric(datas_predicao)), y = predicao$mean, colour = "Predição")) +
           geom_ribbon(aes(x = as.Date(as.numeric(datas_predicao)), 
-                        ymin = predicao$lower[,2], ymax = predicao$upper[,2], fill = "a"), alpha = 0.5) +
+                        ymin = predicao$lower[,2], ymax = predicao$upper[,2], fill = "Intervalo"), alpha = 0.5) +
           theme_minimal() +
           theme(axis.text.x  = element_text(angle=90,hjust=1), legend.position = 'bottom') + 
           xlab("Tempo") +
@@ -208,10 +196,55 @@ server <- function(input, output) {
           ylab(eixo_y)
       }
       
-      #output$teste = renderPlot(total_algo_safra)
-      output$serie_temporal = renderPlot(serie_temporal)
+      output$serie_temporal = renderPlotly(ggplotly(serie_temporal) %>%
+                                           layout(legend = list(orientation = "h", x = 0.1, y = -0.2)))
     }
-  }, ignoreInit = T)
+  })
+  
+observeEvent(input$info, {
+  ###Formação por Mapa - apenas estados ----
+  variavel = input$info
+  
+  #Por estado
+  eval(parse(text = paste0('Y_estado = dataset$dados %>% dplyr::select(estado,',variavel,') %>% 
+        dplyr::group_by(estado) %>% 
+        dplyr::summarise(Total = sum(',variavel,', na.rm = T)) %>% 
+        as.data.frame()')))
+  
+  
+  brasil_estados = read_state(code_state = "all", year = 2020)
+  
+  tmap_mode("plot")
+  
+  estados = read.csv('pop_por_estado2020.csv', header = T)
+  
+  estados$abbrev_state = c("AC", "AL", "AP","AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+                           "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO",
+                           "RR", "SC", "SP", "SE", "TO")
+  
+  brasil_estados$name_state = ifelse(brasil_estados$name_state == 'Amazônas','Amazonas',brasil_estados$name_state)
+  
+  brasil_estados$name_state = toupper(trimws(brasil_estados$name_state)) 
+  
+  Y_estado$estado = toupper(trimws(unique(Y_estado$estado)))
+  
+  brasil_estados = left_join(brasil_estados, estados, by = ('abbrev_state' = 'abbrev_state'))
+  brasil_estados = left_join(brasil_estados, Y_estado, by = c('name_state' = 'estado'))
+  
+  brasil_estados$Taxa = (brasil_estados$Total/brasil_estados$Populacao) * 100000 
+  mapa = tm_shape(brasil_estados) +
+    tm_polygons("Taxa") + 
+    tm_text("abbrev_state", scale=1)  +
+    tm_layout("Taxa por 100.000",
+              legend.title.size = 1,
+              legend.text.size = 0.6,
+              legend.position = c("left","bottom"),
+              legend.bg.color = "white",
+              legend.bg.alpha = 1)
+  
+  output$mapa = renderTmap(mapa)
+})
+
 }
 
 # Run the application 
