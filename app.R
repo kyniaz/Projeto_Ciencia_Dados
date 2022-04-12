@@ -105,7 +105,7 @@ server <- function(input, output) {
   })
   
   eventos = reactive({
-    list(input$data_tipo, input$info, input$previsao_prazo)
+    list(input$ano, input$data_tipo, input$info, input$previsao_prazo)
   })
   
   observeEvent(eventos(), {
@@ -201,7 +201,11 @@ server <- function(input, output) {
     }
   })
   
-observeEvent(input$info, {
+eventos_mapa = reactive({
+  list(input$ano, input$info)
+})
+  
+observeEvent(eventos_mapa(), {
   ###Formação por Mapa - apenas estados ----
   variavel = input$info
   
