@@ -8,7 +8,7 @@ library(shinybusy)
 library(forecast)
 library(zoo)
 library(plotly)
-library(tmap)
+library(leaflet)
 #remotes::install_github("rpradosiqueira/brazilmaps")
 library(brazilmaps)
 #devtools::install_github("ipeaGIT/geobr", subdir = "r-package")
@@ -54,53 +54,40 @@ ui <- dashboardPage(
               plotlyOutput("serie_temporal")),
             tabPanel(
               title = "Informação Espacial",
-              tmapOutput("mapa")
+              #tmapOutput("mapa")
+              leafletOutput("mapa")
             )
           )
         )
   )
 
+load('brasil_estados.RData')
 dataset = reactiveValues()
-
+dataset$brasil_estados = brasil_estados
 
 #Servidor
 server <- function(input, output) {
 
   observeEvent(input$ano, {
     
-    show_modal_gif(
-      src = "https://c.tenor.com/7GfS_1bH1FAAAAAC/lux-lol.gif",
-      width = "250px", height = "250px",
-      modal_size = "s",
-      text = "Fazendo o download da base..."
-    )
-    
     ## Upa database do ano e joga no environment
     if(input$ano == '2020'){
-      dataset$dados = fread('https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/LEITOS/2022-03-26/esus-vepi.LeitoOcupacao_2020.csv', 
-                    sep=",", dec=".", quote="\"", encoding = "UTF-8")
+      load('dados2020_lista.RData')
+      dataset$dados = NULL
+      dataset$dados = dados2020_lista
     }
     else if(input$ano == '2021'){
-      dataset$dados = fread('https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/LEITOS/2022-03-26/esus-vepi.LeitoOcupacao_2021.csv', 
-                    sep=",", dec=".", quote="\"", encoding = "UTF-8")
+      load('dados2021_lista.RData')
+      dataset$dados = NULL
+      dataset$dados = dados2021_lista
     }
     else {
-      dataset$dados = fread('https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/LEITOS/2022-03-26/esus-vepi.LeitoOcupacao_2022.csv', 
-                    sep=",", dec=".", quote="\"", encoding = "UTF-8")
+      load('dados2022_lista.RData')
+      dataset$dados = NULL
+      dataset$dados = dados2022_lista
     }
-    remove_modal_gif()
     
-    dataset$dados = dataset$dados %>% select(dataNotificacao, ocupacaoSuspeitoCli, ocupacaoSuspeitoUti,
-                            ocupacaoConfirmadoCli, ocupacaoConfirmadoUti,
-                            ocupacaoCovidUti, ocupacaoCovidCli,
-                            ocupacaoHospitalarUti, ocupacaoHospitalarCli,
-                            saidaSuspeitaObitos, saidaSuspeitaAltas,
-                            saidaConfirmadaObitos, saidaConfirmadaAltas,
-                            estado, estadoNotificacao, municipio, municipioNotificacao)
-    
-    dataset$dados$Safra = as.factor(year(dataset$dados$dataNotificacao)*100 + month(dataset$dados$dataNotificacao))
-    dataset$dados$Semana = as.factor(week(dataset$dados$dataNotificacao))
-    dataset$dados$Dia = as.factor(yday(dataset$dados$dataNotificacao))
+    #remove_modal_gif()
     
   })
   
@@ -118,10 +105,7 @@ server <- function(input, output) {
       variavel = input$info
       
       ###Formatação por data (dia, mes ou semana) ----
-      eval(parse(text = paste0('Y = dataset$dados %>% dplyr::select(,',var_data,',',variavel,') %>% 
-        dplyr::group_by(',var_data,') %>% 
-        dplyr::summarise(Total = sum(',variavel,', na.rm = T)) %>% 
-        as.data.frame()')))
+      eval(parse(text = paste0('Y = dataset$dados$',paste0(var_data,'_',variavel))))
   
       maiusculas_eixo_y = regmatches(variavel, gregexpr("[A-Z]", variavel))
       
@@ -137,7 +121,7 @@ server <- function(input, output) {
       
       # if(input$data_tipo == "Por Dia")
       
-      dia_mais_recente = as.Date(max(dataset$dados$dataNotificacao),'%Y-%m-%d')
+      dia_mais_recente = dataset$dados$dia_mais_recente
       
       if(input$data_tipo == "Por Dia"){
         prev_prazo = input$previsao_prazo
@@ -207,18 +191,15 @@ eventos_mapa = reactive({
   
 observeEvent(eventos_mapa(), {
   ###Formação por Mapa - apenas estados ----
+  output$mapa = NULL
+  
   variavel = input$info
   
   #Por estado
-  eval(parse(text = paste0('Y_estado = dataset$dados %>% dplyr::select(estado,',variavel,') %>% 
-        dplyr::group_by(estado) %>% 
-        dplyr::summarise(Total = sum(',variavel,', na.rm = T)) %>% 
-        as.data.frame()')))
+  eval(parse(text = paste0('Y_estado = dataset$dados$',paste0('estado_',variavel))))
   
   
-  brasil_estados = read_state(code_state = "all", year = 2020)
-  
-  tmap_mode("plot")
+  #dataset$brasil_estados = read_state(code_state = "all", year = 2020)
   
   estados = read.csv('pop_por_estado2020.csv', header = T)
   
@@ -226,27 +207,31 @@ observeEvent(eventos_mapa(), {
                            "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO",
                            "RR", "SC", "SP", "SE", "TO")
   
-  brasil_estados$name_state = ifelse(brasil_estados$name_state == 'Amazônas','Amazonas',brasil_estados$name_state)
+  dataset$brasil_estados = dataset$brasil_estados[,c(1:6)]
   
-  brasil_estados$name_state = toupper(trimws(brasil_estados$name_state)) 
+  dataset$brasil_estados$name_state = ifelse(dataset$brasil_estados$name_state == 'Amazônas','Amazonas',dataset$brasil_estados$name_state)
+  
+  dataset$brasil_estados$name_state = toupper(trimws(dataset$brasil_estados$name_state)) 
   
   Y_estado$estado = toupper(trimws(unique(Y_estado$estado)))
   
-  brasil_estados = left_join(brasil_estados, estados, by = ('abbrev_state' = 'abbrev_state'))
-  brasil_estados = left_join(brasil_estados, Y_estado, by = c('name_state' = 'estado'))
+  dataset$brasil_estados = left_join(dataset$brasil_estados, estados, by = ('abbrev_state' = 'abbrev_state'))
+  dataset$brasil_estados = left_join(dataset$brasil_estados, Y_estado, by = c('name_state' = 'estado'))
   
-  brasil_estados$Taxa = (brasil_estados$Total/brasil_estados$Populacao) * 100000 
-  mapa = tm_shape(brasil_estados) +
-    tm_polygons("Taxa") + 
-    tm_text("abbrev_state", scale=1)  +
-    tm_layout("Taxa por 100.000",
-              legend.title.size = 1,
-              legend.text.size = 0.6,
-              legend.position = c("left","bottom"),
-              legend.bg.color = "white",
-              legend.bg.alpha = 1)
+  dataset$brasil_estados$Taxa = (dataset$brasil_estados$Total/dataset$brasil_estados$Populacao) * 100000 
   
-  output$mapa = renderTmap(mapa)
+  reds = colorNumeric("Reds", domain = dataset$brasil_estados$Taxa)
+  
+  mapa = leaflet(data = dataset$brasil_estados)
+  mapa = mapa %>% 
+    addPolygons(weight = 0.1, fillColor = ~reds(Taxa),
+                color = "green",fillOpacity = 0.9,
+                smoothFactor = 0.5,
+                popup = paste0(dataset$brasil_estados$name_state,":  ",
+                               dataset$brasil_estados$Taxa)) %>%
+    addLegend(position = "bottomright", pal = reds, values = ~Taxa)
+  
+  output$mapa = renderLeaflet(mapa)
 })
 
 }
